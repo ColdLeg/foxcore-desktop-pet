@@ -14,7 +14,8 @@ use foxcore_plugin_sdk::abi_stable::std_types::{ROption, RResult, RString, RVec}
 use foxcore_plugin_sdk::async_ffi::FfiFuture;
 use foxcore_plugin_sdk::{
     AbiConversationYield, AbiError, AbiErrorCode, AbiLogEvent, AbiLogLevel, AbiPlugin,
-    AdapterCallbackBox, AdapterDescriptor, ConversationContextBox, HostApi, PluginCapabilities,
+    AdapterCallbackBox, AdapterDescriptor, AdapterEvent, ConversationContextBox, HostApi,
+    PluginCapabilities,
     catch_panic, guarded_async, guarded_fire_and_forget,
 };
 

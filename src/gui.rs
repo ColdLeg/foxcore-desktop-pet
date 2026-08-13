@@ -6,7 +6,7 @@
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
 
-use egui::{Align2, Color32, CornerRadius, FontId, Pos2, Rect, Stroke, pos2, vec2};
+use egui::{Align2, Color32, Rounding, FontId, Pos2, Rect, Stroke, pos2, vec2};
 
 use crate::channels::{GuiCommand, GuiEvent};
 use crate::config::DesktopPetConfig;
@@ -140,8 +140,8 @@ impl PetApp {
             pos2((WINDOW_W - (size.x + pad * 2.0)) * 0.5, 6.0),
             vec2(size.x + pad * 2.0, size.y + pad * 2.0),
         );
-        painter.rect_filled(bubble, CornerRadius::same(10), fade(self.theme.surface, self.opacity));
-        painter.rect_stroke(bubble, CornerRadius::same(10), Stroke::new(1.0, self.theme.border));
+        painter.rect_filled(bubble, Rounding::same(10), fade(self.theme.surface, self.opacity));
+        painter.rect_stroke(bubble, Rounding::same(10), Stroke::new(1.0, self.theme.border));
         painter.galley(
             pos2(bubble.min.x + pad, bubble.min.y + pad),
             galley,
@@ -250,12 +250,12 @@ impl PetApp {
                     let painter = ui.painter_at(rect);
                     painter.rect_filled(
                         rect,
-                        CornerRadius::same(8),
+                        Rounding::same(8),
                         fade(self.theme.surface, self.opacity),
                     );
                     painter.rect_stroke(
                         rect,
-                        CornerRadius::same(8),
+                        Rounding::same(8),
                         Stroke::new(1.0, self.theme.border),
                     );
                     let mut inner = ui.new_child(
@@ -270,7 +270,7 @@ impl PetApp {
                                 let (color, prefix) = if line.role == "user" {
                                     (self.theme.accent, "你")
                                 } else {
-                                    (self.theme.text, &self.config.pet_name)
+                                    (self.theme.text, self.config.pet_name.as_str())
                                 };
                                 ui.label(
                                     egui::RichText::new(format!("{prefix}: {}", line.text))
@@ -290,12 +290,12 @@ impl PetApp {
                 let painter = ui.painter_at(rect);
                 painter.rect_filled(
                     rect,
-                    CornerRadius::same(8),
+                    Rounding::same(8),
                     fade(self.theme.surface, self.opacity),
                 );
                 painter.rect_stroke(
                     rect,
-                    CornerRadius::same(8),
+                    Rounding::same(8),
                     Stroke::new(1.0, self.theme.border),
                 );
                 let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink(4.0)));

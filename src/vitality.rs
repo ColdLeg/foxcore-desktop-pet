@@ -88,7 +88,7 @@ pub fn unix_seconds() -> i64 {
 pub fn local_hour(unix_secs: i64, utc_offset_hours: i32) -> u32 {
     let secs_of_day = unix_secs.rem_euclid(86_400);
     let utc_hour = (secs_of_day / 3_600) as i32;
-    ((utc_hour + utc_offset_hours) % 24 + 24) % 24
+    (((utc_hour + utc_offset_hours) % 24 + 24) % 24) as u32
 }
 
 /// 是否处于白天（醒着时段），支持跨午夜作息。
