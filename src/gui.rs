@@ -140,8 +140,8 @@ impl PetApp {
             pos2((WINDOW_W - (size.x + pad * 2.0)) * 0.5, 6.0),
             vec2(size.x + pad * 2.0, size.y + pad * 2.0),
         );
-        painter.rect_filled(bubble, Rounding::same(10), fade(self.theme.surface, self.opacity));
-        painter.rect_stroke(bubble, Rounding::same(10), Stroke::new(1.0, self.theme.border));
+        painter.rect_filled(bubble, Rounding::same(10.0), fade(self.theme.surface, self.opacity));
+        painter.rect_stroke(bubble, Rounding::same(10.0), Stroke::new(1.0, self.theme.border));
         painter.galley(
             pos2(bubble.min.x + pad, bubble.min.y + pad),
             galley,
@@ -250,12 +250,12 @@ impl PetApp {
                     let painter = ui.painter_at(rect);
                     painter.rect_filled(
                         rect,
-                        Rounding::same(8),
+                        Rounding::same(8.0),
                         fade(self.theme.surface, self.opacity),
                     );
                     painter.rect_stroke(
                         rect,
-                        Rounding::same(8),
+                        Rounding::same(8.0),
                         Stroke::new(1.0, self.theme.border),
                     );
                     let mut inner = ui.new_child(
@@ -290,12 +290,12 @@ impl PetApp {
                 let painter = ui.painter_at(rect);
                 painter.rect_filled(
                     rect,
-                    Rounding::same(8),
+                    Rounding::same(8.0),
                     fade(self.theme.surface, self.opacity),
                 );
                 painter.rect_stroke(
                     rect,
-                    Rounding::same(8),
+                    Rounding::same(8.0),
                     Stroke::new(1.0, self.theme.border),
                 );
                 let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink(4.0)));
