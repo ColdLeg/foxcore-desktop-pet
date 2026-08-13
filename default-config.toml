@@ -1,0 +1,37 @@
+version = 1
+
+# ── 精力同步 ─────────────────────────────────────────────
+# 主程序 HTTP API 的 /metrics 端点（用于读取 foxcore_sleep_energy_percent）
+metrics_url = "http://127.0.0.1:8080/metrics"
+# 精力轮询间隔（秒）
+poll_energy_secs = 30
+
+# ── 活力值引擎 ───────────────────────────────────────────
+# 每次用户交互给活力值的瞬时加成
+interaction_bonus = 12.0
+# 交互加成衰减半衰期（分钟）
+decay_half_life_minutes = 20.0
+# 白天活力修正
+day_bonus = 5.0
+# 夜间活力修正（负值）
+night_penalty = 15.0
+
+# ── 昼夜作息 ─────────────────────────────────────────────
+sleep_enabled = true
+sleep_start_hour = 23
+wake_start_hour = 7
+# 本地时区相对 UTC 的小时偏移（中国默认 +8）
+utc_offset_hours = 8
+
+# ── 聊天 ─────────────────────────────────────────────────
+user_name = "用户"
+pet_name = "桌宠"
+system_prompt = "你当前正在以桌面宠物的形式运行在用户的电脑桌面上。你可以感知自己的活力值（精力+交互情绪）与昼夜状态。请以桌宠的身份与用户互动，保持自然、亲近的交流风格。"
+dialog_auto_hide_sec = 10.0
+show_chat_messages = false
+
+# ── 主题（kitsuneflora 暖狐毛配色）─────────────────────
+# 可选 dark / light
+theme_mode = "dark"
+# 窗口透明度（0.1~1.0）
+opacity = 1.0

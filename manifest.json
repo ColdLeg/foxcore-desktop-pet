@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "foxcore-desktop-pet",
+  "displayName": "FoxCore 桌宠",
+  "version": "0.1.0",
+  "description": "FoxCore 桌面桌宠插件：透明无边框置顶窗口 + 活力值引擎 + 精力同步",
+  "abiVersion": "1.6",
+  "entrypoints": {
+    "windows-x86_64": "bin/windows-x86_64/plugin.dll",
+    "linux-x86_64": "bin/linux-x86_64/plugin.so"
+  },
+  "locales": [],
+  "registrations": { "promptOverrides": [], "skillOverrides": [] }
+}
