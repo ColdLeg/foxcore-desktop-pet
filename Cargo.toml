@@ -23,6 +23,11 @@ toml = "0.8"
 eframe = "0.29"
 egui = "0.29"
 
+# winit（仅 Windows）：桌宠 GUI 跑在非主线程，需通过 EventLoopBuilderExtWindows::with_any_thread(true)
+# 才能在子线程创建 EventLoop，否则 winit 0.30 会直接 panic。
+[target.'cfg(windows)'.dependencies]
+winit = "0.30"
+
 [lints.clippy]
 unwrap_used = "warn"
 expect_used = "warn"

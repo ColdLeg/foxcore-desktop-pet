@@ -14,6 +14,11 @@ use crate::config::DesktopPetConfig;
 use crate::theme::Theme;
 use crate::vitality::{VitalityStage, VitalityState};
 
+// 桌宠 GUI 跑在非主线程；winit 0.30 在 Windows 上默认禁止在子线程创建 EventLoop，
+// 需要显式 `with_any_thread(true)` 放行（仅 Windows 提供该扩展 trait）。
+#[cfg(windows)]
+use winit::platform::windows::EventLoopBuilderExtWindows as _;
+
 /// winit 只允许每个进程存在一个 EventLoop。桌宠插件会被 host 热重载（每次重载新建实例、
 /// 新起 GUI 线程），若前一个 EventLoop 尚未 Drop 就创建下一个，会得到
 /// `EventLoopError::RecreationAttempt`。这里用进程级锁串行化 GUI 线程的整个生命周期，
@@ -42,6 +47,11 @@ pub fn run_gui(
     let title = config.pet_name.clone();
 
     let native_options = eframe::NativeOptions {
+        // Windows 上允许在子线程创建 EventLoop（桌宠 GUI 线程非主线程）。
+        #[cfg(windows)]
+        event_loop_builder: Some(Box::new(|builder| {
+            builder.with_any_thread(true);
+        })),
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([WINDOW_W, WINDOW_H])
             .with_min_inner_size([WINDOW_W, WINDOW_H])
