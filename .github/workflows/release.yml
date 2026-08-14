@@ -169,7 +169,7 @@ jobs:
 
       - name: Pack with foxplugin Action
         id: pack
-        uses: KitsuneFlora/foxplugin/actions/pack@main
+        uses: KitsuneFlora/foxcore-plugin-sdk/actions/pack@main
         with:
           path: ${{ env.staging }}
           output: ${{ env.PACKAGE_PATH }}

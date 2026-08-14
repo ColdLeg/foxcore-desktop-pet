@@ -60,11 +60,11 @@ cargo build --release
 # Linux 需先安装 eframe/egui 的系统依赖（见 CI 的 apt 列表）
 ```
 
-打包为 `.foxplugin`（或直接交由 GitHub Actions 的 `release.yml` 矩阵编译 + 打包）：
+打包为 `.foxplugin`（推荐直接交由 GitHub Actions 的 `release.yml` 矩阵编译 + 打包）。手动打包需先取 `foxplugin` CLI：
 
 ```bash
-cargo build --release -p foxplugin-cli
-./target/release/foxplugin pack . --output dist/foxcore-desktop-pet.foxplugin
+# CLI 从公开 release 下载（KitsuneFlora/foxcore-plugin-sdk 的 foxplugin-v0.3.0）
+foxplugin pack . --output dist/foxcore-desktop-pet.foxplugin
 ```
 
 产物为 `foxcore_desktop_pet.dll`（Windows）/ `libfoxcore_desktop_pet.so`（Linux），复制到 FoxNature 实例的 `plugins/` 即可加载。
