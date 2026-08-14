@@ -1,8 +1,10 @@
 //! GUI 线程与异步侧（host Tokio runtime）之间的消息类型。
 //!
-//! 两条单向 `std::sync::mpsc` 通道：
-//! - 异步侧 → GUI：`GuiCommand`（气泡、聊天、活力值快照、退出）
-//! - GUI → 异步侧：`GuiEvent`（用户消息、抚摸交互）
+//! 两条单向通路：
+//! - 异步侧 → GUI：`GuiCommand`（`std::sync::mpsc`；气泡、聊天、活力值快照、退出）
+//! - GUI → 异步侧：`GuiEvent`（UDP 桥，JSON datagram；用户消息、抚摸交互）
+
+use serde::{Deserialize, Serialize};
 
 use crate::vitality::VitalityState;
 
@@ -19,8 +21,8 @@ pub enum GuiCommand {
     Quit,
 }
 
-/// GUI 线程发给异步侧的事件。
-#[derive(Debug, Clone)]
+/// GUI 线程发给异步侧的事件（经 UDP 桥序列化为 JSON datagram）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GuiEvent {
     /// 用户在聊天框输入并发送的消息。
     UserMessage(String),

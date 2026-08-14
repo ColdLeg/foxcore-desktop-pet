@@ -3,8 +3,9 @@
 //! 后台任务分三类：
 //! - GUI 线程（`std::thread`）：`eframe::run_native`，与 Tokio runtime 解耦；
 //! - 活力值循环（host task）：轮询主程序 `/metrics` 精力 → 计算活力值 → 持久化；
-//! - 事件循环（host task）：`try_recv` 拉取 GUI 事件 → 入站消息 / 交互加成。
+//! - UDP 桥 receiver（`std::thread`）：阻塞 `recv_from`，收到 GUI datagram 即转发主程序。
 
+use std::net::{SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -26,6 +27,8 @@ use crate::vitality::{self, VitalityState};
 
 const DEFAULT_CONFIG_TOML: &str = include_str!("../default-config.toml");
 const STATE_KEY: &str = "vitality";
+/// UDP 桥的退出哨兵 datagram；receiver 线程收到后结束 recv 循环。
+const UDP_QUIT: &[u8] = b"__foxcore_desktop_pet_quit__";
 
 pub struct DesktopPetPlugin {
     host: Arc<HostApi>,
@@ -37,18 +40,20 @@ pub struct DesktopPetPlugin {
     tx_gui: Sender<GuiCommand>,
     // GUI 线程独占的接收端（adapter_start 时取出移入线程）。
     rx_cmd: Mutex<Option<Receiver<GuiCommand>>>,
-    // GUI → 异步侧的事件通道（Sender 移入 GUI 线程，Receiver 移入事件循环）。
-    tx_event: Mutex<Option<Sender<GuiEvent>>>,
-    rx_gui: Mutex<Option<Receiver<GuiEvent>>>,
+    // GUI → 异步侧的 UDP 桥：GUI 线程把 GuiEvent 序列化为 JSON datagram 发到这里，
+    // receiver 线程阻塞 recv_from，收到即转发主程序（无轮询）。
+    udp_socket: Arc<UdpSocket>,
+    udp_addr: SocketAddr,
+    event_thread: Mutex<Option<JoinHandle<()>>>,
     vitality_task: Mutex<Option<u64>>,
-    event_task: Mutex<Option<u64>>,
     gui_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl DesktopPetPlugin {
     pub fn new(host: Arc<HostApi>, config: DesktopPetConfig) -> Self {
         let (tx_gui, rx_cmd) = channel::<GuiCommand>();
-        let (tx_event, rx_gui) = channel::<GuiEvent>();
+        let udp_socket = Arc::new(UdpSocket::bind("127.0.0.1:0").expect("绑定桌宠 UDP 桥失败"));
+        let udp_addr = udp_socket.local_addr().expect("读取 UDP 桥地址失败");
         Self {
             host,
             config: Mutex::new(config),
@@ -57,15 +62,15 @@ impl DesktopPetPlugin {
             stop_flag: Arc::new(AtomicBool::new(false)),
             tx_gui,
             rx_cmd: Mutex::new(Some(rx_cmd)),
-            tx_event: Mutex::new(Some(tx_event)),
-            rx_gui: Mutex::new(Some(rx_gui)),
+            udp_socket,
+            udp_addr,
+            event_thread: Mutex::new(None),
             vitality_task: Mutex::new(None),
-            event_task: Mutex::new(None),
             gui_handle: Mutex::new(None),
         }
     }
 
-    /// 同步地完成适配器启动：存回调、起 GUI 线程、挂两个后台任务。
+    /// 同步地完成适配器启动：存回调、起 GUI 线程、UDP 桥 receiver 线程、活力值任务。
     fn start_adapter(&self, callback: AdapterCallbackBox) -> Result<(), AbiError> {
         let host = Arc::clone(&self.host);
         let config = self.config.lock().unwrap().clone();
@@ -79,27 +84,35 @@ impl DesktopPetPlugin {
             .unwrap()
             .take()
             .ok_or_else(|| AbiError::internal("GUI 命令通道已被消费"))?;
-        let tx_event = self
-            .tx_event
-            .lock()
-            .unwrap()
-            .take()
-            .ok_or_else(|| AbiError::internal("GUI 事件通道已被消费"))?;
-        let rx_gui = self
-            .rx_gui
-            .lock()
-            .unwrap()
-            .take()
-            .ok_or_else(|| AbiError::internal("GUI 事件通道已被消费"))?;
 
         *self.callback.lock().unwrap() = Some(Arc::clone(&callback_arc));
 
-        // GUI 线程
+        // GUI 线程：通过 UDP 桥发送 GuiEvent。
         let gui_config = config.clone();
-        let handle = std::thread::spawn(move || {
-            crate::gui::run_gui(rx_cmd, tx_event, gui_config);
+        let udp_addr = self.udp_addr;
+        let gui_handle = std::thread::spawn(move || {
+            crate::gui::run_gui(rx_cmd, udp_addr, gui_config);
         });
-        *self.gui_handle.lock().unwrap() = Some(handle);
+        *self.gui_handle.lock().unwrap() = Some(gui_handle);
+
+        // UDP 桥 receiver 线程：阻塞 recv_from，收到 datagram 立即转发主程序。
+        let recv_socket = Arc::clone(&self.udp_socket);
+        let recv_host = Arc::clone(&host);
+        let recv_callback = Arc::clone(&callback_arc);
+        let recv_config = config.clone();
+        let recv_vitality = Arc::clone(&vitality);
+        let recv_tx_gui = self.tx_gui.clone();
+        let event_thread = std::thread::spawn(move || {
+            event_receiver(
+                recv_socket,
+                recv_host,
+                recv_callback,
+                recv_config,
+                recv_vitality,
+                recv_tx_gui,
+            );
+        });
+        *self.event_thread.lock().unwrap() = Some(event_thread);
 
         // 活力值循环
         let vitality_task = host
@@ -117,29 +130,12 @@ impl DesktopPetPlugin {
             .into_result()?;
         *self.vitality_task.lock().unwrap() = Some(vitality_task);
 
-        // 事件循环
-        let event_task = host
-            .task
-            .spawn(
-                RString::from("desktop-pet-events"),
-                guarded_fire_and_forget(event_loop(
-                    Arc::clone(&host),
-                    config.clone(),
-                    Arc::clone(&callback_arc),
-                    Arc::clone(&vitality),
-                    self.tx_gui.clone(),
-                    rx_gui,
-                    Arc::clone(&stop_flag),
-                )),
-            )
-            .into_result()?;
-        *self.event_task.lock().unwrap() = Some(event_task);
-
         host.log.log(AbiLogEvent::message(
             AbiLogLevel::Info,
             "桌宠",
             format!(
-                "adapter `{ADAPTER_NAME}` started（vitality={vitality_task}, events={event_task}）"
+                "adapter `{ADAPTER_NAME}` started（vitality={vitality_task}, udp={}）",
+                self.udp_addr
             ),
         ));
 
@@ -152,8 +148,10 @@ impl DesktopPetPlugin {
         if let Some(id) = self.vitality_task.lock().unwrap().take() {
             self.host.task.abort(id);
         }
-        if let Some(id) = self.event_task.lock().unwrap().take() {
-            self.host.task.abort(id);
+        // 唤醒并结束 UDP 桥 receiver 线程（哨兵 datagram 使 recv_from 返回）。
+        let _ = self.udp_socket.send_to(UDP_QUIT, self.udp_addr);
+        if let Some(handle) = self.event_thread.lock().unwrap().take() {
+            let _ = handle.join();
         }
         let _ = self.tx_gui.send(GuiCommand::Quit);
         if join_gui {
@@ -195,48 +193,75 @@ async fn vitality_loop(
     }
 }
 
-/// 事件循环：拉取 GUI 事件 → 入站消息上报 / 抚摸加成。
-async fn event_loop(
+/// UDP 桥 receiver：阻塞 `recv_from`，收到 datagram 即转发（无轮询）。
+///
+/// `emit` 是异步回调，必须由 host runtime poll，因此这里用 `host.task.spawn`
+/// 把每条入站消息的广播交给 runtime；`observe_incoming` 是同步的，直接调用即可。
+fn event_receiver(
+    socket: Arc<UdpSocket>,
     host: Arc<HostApi>,
-    config: DesktopPetConfig,
     callback: Arc<AdapterCallbackBox>,
+    config: DesktopPetConfig,
     vitality: Arc<Mutex<VitalityState>>,
     tx_gui: Sender<GuiCommand>,
-    rx_gui: Receiver<GuiEvent>,
-    stop_flag: Arc<AtomicBool>,
 ) {
+    let mut buf = [0u8; 65536];
     loop {
-        if stop_flag.load(Ordering::Relaxed) {
-            break;
-        }
-        match rx_gui.try_recv() {
-            Ok(GuiEvent::UserMessage(text)) => {
-                let event = convert::incoming_from_text(text, &config);
-                if let Ok(json) = foxcore_plugin_sdk::encode_json("AdapterEvent", &event) {
-                    if let AdapterEvent::MessageReceived(msg) = &event {
-                        if let Ok(incoming) =
-                            foxcore_plugin_sdk::encode_json("IncomingMessage", msg.as_ref())
-                        {
-                            callback.observe_incoming(incoming);
-                        }
-                    }
-                    callback.emit(json).await;
+        match socket.recv_from(&mut buf) {
+            Ok((len, _src)) => {
+                if &buf[..len] == UDP_QUIT {
+                    break;
                 }
-            }
-            Ok(GuiEvent::Petted) => {
-                let now = vitality::unix_seconds();
-                let state = {
-                    let mut current = *vitality.lock().unwrap();
-                    current.last_interaction_secs = now;
-                    vitality::compute_vitality(&current, &config, now, None)
+                let Ok(event) = serde_json::from_slice::<GuiEvent>(&buf[..len]) else {
+                    continue;
                 };
-                *vitality.lock().unwrap() = state;
-                let _ = tx_gui.send(GuiCommand::SetVitality(state));
+                handle_gui_event(event, &host, &callback, &config, &vitality, &tx_gui);
             }
-            Err(std::sync::mpsc::TryRecvError::Empty) => {}
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+            Err(_) => break,
         }
-        host.time.sleep_ms(100).await;
+    }
+}
+
+/// 处理单条 GUI 事件：入站消息上报主程序，或抚摸加成更新活力值。
+fn handle_gui_event(
+    event: GuiEvent,
+    host: &Arc<HostApi>,
+    callback: &Arc<AdapterCallbackBox>,
+    config: &DesktopPetConfig,
+    vitality: &Arc<Mutex<VitalityState>>,
+    tx_gui: &Sender<GuiCommand>,
+) {
+    match event {
+        GuiEvent::UserMessage(text) => {
+            let event = convert::incoming_from_text(text, config);
+            if let Ok(json) = foxcore_plugin_sdk::encode_json("AdapterEvent", &event) {
+                if let AdapterEvent::MessageReceived(msg) = &event {
+                    if let Ok(incoming) =
+                        foxcore_plugin_sdk::encode_json("IncomingMessage", msg.as_ref())
+                    {
+                        callback.observe_incoming(incoming);
+                    }
+                }
+                let host = Arc::clone(host);
+                let callback = Arc::clone(callback);
+                let _ = host.task.spawn(
+                    RString::from("desktop-pet-emit"),
+                    guarded_fire_and_forget(async move {
+                        callback.emit(json).await;
+                    }),
+                );
+            }
+        }
+        GuiEvent::Petted => {
+            let now = vitality::unix_seconds();
+            let state = {
+                let mut current = *vitality.lock().unwrap();
+                current.last_interaction_secs = now;
+                vitality::compute_vitality(&current, config, now, None)
+            };
+            *vitality.lock().unwrap() = state;
+            let _ = tx_gui.send(GuiCommand::SetVitality(state));
+        }
     }
 }
 

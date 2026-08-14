@@ -1,9 +1,11 @@
 //! egui 桌宠窗口：透明无边框置顶窗，狐狸由 egui 形状绘制。
 //!
 //! 本模块在独立的 `std::thread` 中运行（`eframe::run_native`），与 host 的
-//! Tokio runtime 解耦，通过 [`crate::channels`] 的两条单向通道通信。
+//! Tokio runtime 解耦：经 [`crate::channels::GuiCommand`]（mpsc）接收命令，
+//! 经 UDP 桥（JSON datagram）上报 [`crate::channels::GuiEvent`]。
 
-use std::sync::mpsc::{Receiver, Sender};
+use std::net::{SocketAddr, UdpSocket};
+use std::sync::mpsc::Receiver;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -35,12 +37,15 @@ const HEAD_R: f32 = 38.0;
 /// 桌宠窗口入口：由 [`crate::plugin`] 在 `std::thread` 中调用。
 pub fn run_gui(
     rx_cmd: Receiver<GuiCommand>,
-    tx_event: Sender<GuiEvent>,
+    udp_addr: SocketAddr,
     config: DesktopPetConfig,
 ) {
     // 持有到 run_native 返回为止：上一实例的 GUI 线程退出并 Drop 其 EventLoop 后，
     // 下一实例才能继续，从而避免 winit 的 “EventLoop can't be recreated”。
     let _loop_guard = GUI_LOOP_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    // GUI → 异步侧的 UDP 桥发送端：绑定本地临时端口，向异步侧 socket 发 JSON datagram。
+    let udp_socket = UdpSocket::bind(("127.0.0.1", 0)).ok();
 
     let theme = Theme::from_mode(&config.theme_mode);
     let opacity = config.opacity.clamp(0.1, 1.0);
@@ -66,7 +71,7 @@ pub fn run_gui(
         &title,
         native_options,
         Box::new(move |cc| {
-            let app = PetApp::new(cc, rx_cmd, tx_event, config, theme, opacity);
+            let app = PetApp::new(cc, rx_cmd, udp_socket, udp_addr, config, theme, opacity);
             Ok(Box::new(app) as Box<dyn eframe::App>)
         }),
     );
@@ -91,7 +96,8 @@ struct Dialog {
 /// 桌宠应用状态。
 struct PetApp {
     rx_cmd: Receiver<GuiCommand>,
-    tx_event: Sender<GuiEvent>,
+    udp_socket: Option<UdpSocket>,
+    udp_addr: SocketAddr,
     config: DesktopPetConfig,
     theme: Theme,
     opacity: f32,
@@ -108,7 +114,8 @@ impl PetApp {
     fn new(
         cc: &eframe::CreationContext<'_>,
         rx_cmd: Receiver<GuiCommand>,
-        tx_event: Sender<GuiEvent>,
+        udp_socket: Option<UdpSocket>,
+        udp_addr: SocketAddr,
         config: DesktopPetConfig,
         theme: Theme,
         opacity: f32,
@@ -116,7 +123,8 @@ impl PetApp {
         configure_visuals(cc, theme);
         Self {
             rx_cmd,
-            tx_event,
+            udp_socket,
+            udp_addr,
             config,
             theme,
             opacity,
@@ -132,7 +140,7 @@ impl PetApp {
 
     fn on_pet_clicked(&mut self) {
         self.last_pet = Some(Instant::now());
-        let _ = self.tx_event.send(GuiEvent::Petted);
+        self.send_event(GuiEvent::Petted);
     }
 
     fn submit_input(&mut self) {
@@ -145,7 +153,17 @@ impl PetApp {
             role: "user".to_string(),
             text: text.clone(),
         });
-        let _ = self.tx_event.send(GuiEvent::UserMessage(text));
+        self.send_event(GuiEvent::UserMessage(text));
+    }
+
+    /// 把 GUI 事件序列化为 JSON datagram，经 UDP 桥发给异步侧。
+    fn send_event(&self, event: GuiEvent) {
+        let Some(socket) = &self.udp_socket else {
+            return;
+        };
+        if let Ok(json) = serde_json::to_string(&event) {
+            let _ = socket.send_to(json.as_bytes(), self.udp_addr);
+        }
     }
 
     fn draw_dialog(&self, painter: &egui::Painter) {
