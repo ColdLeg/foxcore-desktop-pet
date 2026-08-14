@@ -5,7 +5,7 @@
 //!
 //! 插件名：`foxcore-desktop-pet`
 //! 适配器名：`desktop-pet`
-//! ABI 版本：1.6（对应 FoxNature v0.2.0 / SDK 0.2.0）
+//! ABI 版本：1.7（对应 FoxNature 最新版 / SDK 0.3.0）
 
 extern crate foxcore_plugin_sdk as abi_stable;
 

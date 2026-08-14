@@ -4,7 +4,7 @@ FoxCore（FoxNature）桌面桌宠插件：一只由**活力值**驱动动画状
 
 - **GUI**：eframe / egui，狐狸用 egui 形状绘制（无图片 / SVG 光栅化依赖）
 - **UI 配色**：kitsuneflora「暖狐毛」fox-orange 主题（`#c2632b` / `#e8945a`），不复用 mofox 蓝
-- **ABI 版本**：1.6（对应 FoxNature v0.2.0 / Plugin SDK 0.2.0）
+- **ABI 版本**：1.7（对应 FoxNature 最新版 / Plugin SDK 0.3.0）
 
 ## 核心概念
 
