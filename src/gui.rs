@@ -4,6 +4,7 @@
 //! Tokio runtime 解耦，通过 [`crate::channels`] 的两条单向通道通信。
 
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use egui::{Align2, Color32, Rounding, FontId, Pos2, Rect, Stroke, pos2, vec2};
@@ -12,6 +13,12 @@ use crate::channels::{GuiCommand, GuiEvent};
 use crate::config::DesktopPetConfig;
 use crate::theme::Theme;
 use crate::vitality::{VitalityStage, VitalityState};
+
+/// winit 只允许每个进程存在一个 EventLoop。桌宠插件会被 host 热重载（每次重载新建实例、
+/// 新起 GUI 线程），若前一个 EventLoop 尚未 Drop 就创建下一个，会得到
+/// `EventLoopError::RecreationAttempt`。这里用进程级锁串行化 GUI 线程的整个生命周期，
+/// 保证任一时刻至多一个 `eframe::run_native` 在跑。
+static GUI_LOOP_LOCK: Mutex<()> = Mutex::new(());
 
 /// 窗口宽度（逻辑点）。
 const WINDOW_W: f32 = 260.0;
@@ -26,6 +33,10 @@ pub fn run_gui(
     tx_event: Sender<GuiEvent>,
     config: DesktopPetConfig,
 ) {
+    // 持有到 run_native 返回为止：上一实例的 GUI 线程退出并 Drop 其 EventLoop 后，
+    // 下一实例才能继续，从而避免 winit 的 “EventLoop can't be recreated”。
+    let _loop_guard = GUI_LOOP_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
     let theme = Theme::from_mode(&config.theme_mode);
     let opacity = config.opacity.clamp(0.1, 1.0);
     let title = config.pet_name.clone();

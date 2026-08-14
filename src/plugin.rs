@@ -337,7 +337,9 @@ impl AbiPlugin for DesktopPetPlugin {
     }
 
     fn adapter_stop(&self, _adapter: RString) -> FfiFuture<RResult<(), AbiError>> {
-        let result = catch_panic(|| self.stop_inner(false));
+        // 与 shutdown 一致：join GUI 线程，确保其 EventLoop 在返回前已 Drop，
+        // 否则下一次热重载会撞上 winit 的 “EventLoop can't be recreated”。
+        let result = catch_panic(|| self.stop_inner(true));
         guarded_async(async move { result })
     }
 
